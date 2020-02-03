@@ -2,6 +2,7 @@ from flask import Flask, request, send_file
 from io import BytesIO
 from staticmap import CircleMarker, IconMarker, Line, Polygon, StaticMap
 import re
+import math
 
 app = Flask(__name__)
 app.config.from_pyfile('config.py')
@@ -32,7 +33,7 @@ def create_map():
 
     try:
         zoom = int(request.args.get('z', default=app.config['DEFAULT_ZOOM']))
-        if zoom > int(app.config['MAX_ZOOM']):
+        if zoom > app.config['MAX_ZOOM']:
             return 'Zoom out of range', 400
     except:
         return 'Could not process zoom', 400
@@ -44,8 +45,9 @@ def create_map():
         except:
             return 'Could not process center', 400
         center = (c_lon, c_lat)
-    else:
-        center = None
+    elif request.args.get("bbox"):
+        center = centerFromBBOX(request.args.get("bbox"))
+        zoom = zoomFromBBOX(request.args.get("bbox"),width, height)
 
     # Create static map object
     static_map = StaticMap(width, height,
@@ -96,13 +98,58 @@ def create_map():
                 return 'Exceeded maximum amount of points, nodes and vertices', 400
             except:
                 return 'Could not process marker', 400
-    else:
-        return 'Could not find markers and/or lines and/or polygons and/or icons', 400
+    #else:
+    #    return 'Could not find markers and/or lines and/or polygons and/or icons', 400
 
     # Render the map
     image = static_map.render(zoom=zoom, center=center)
     return serve_image(image)
 
+#
+# Compute center and zoom from bounding box 
+#
+def centerFromBBOX(bbox):
+    try:
+        bboxAsArray = bbox.split(',')
+        latmoy = (float(bboxAsArray[3]) + float(bboxAsArray[1]) ) / 2.0
+        lonmoy = (float(bboxAsArray[2]) + float(bboxAsArray[0]) ) / 2.0    
+    except:
+        return None
+    return (lonmoy, latmoy)
+
+#
+# See https://stackoverflow.com/questions/6048975/google-maps-v3-how-to-calculate-the-zoom-level-for-a-given-bounds
+#
+def zoomFromBBOX(bbox, width, height):
+    try:
+        bboxAsArray = bbox.split(',')
+        ne = {
+            "lng": max(float(bboxAsArray[2]), float(bboxAsArray[0])),
+            "lat": max(float(bboxAsArray[3]), float(bboxAsArray[1]))
+        }
+        sw = {
+            "lng": min(float(bboxAsArray[2]), float(bboxAsArray[0])),
+            "lat": min(float(bboxAsArray[3]), float(bboxAsArray[1]))
+        }
+    except:
+        return None
+
+    latFraction = ( latRad(ne['lat']) - latRad(sw['lat']) ) / math.pi
+    lngDiff = ne['lng'] - sw['lng']
+    lngFraction = ((lngDiff + 360) if lngDiff < 0 else lngDiff) / 360
+
+    latZoom = getZoom(height, 256, latFraction)
+    lngZoom = getZoom(width, 256, lngFraction)
+    
+    return min(latZoom, lngZoom, app.config['MAX_ZOOM'])
+
+def latRad(lat):
+    sin = math.sin(lat * math.pi / 180)
+    radX2 = math.log((1 + sin) / (1 - sin)) / 2.0
+    return max(min(radX2, math.pi), -math.pi) / 2.0
+
+def getZoom(mapPx, worldPx, fraction):
+    return math.floor(math.log(mapPx / worldPx / fraction) / math.log(2))
 
 def process_marker(m, pnv):
     """Creates a CircleMarker object with the properties from the request"""

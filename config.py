@@ -13,5 +13,5 @@ DEFAULT_ZOOM = '10'
 # Maximum values can't be overwritten
 MAX_WIDTH = '800'
 MAX_HEIGHT = '800'
-MAX_ZOOM = '19'
+MAX_ZOOM = 19
 MAX_PNV = '30' # Map won't contain more points, nodes and vertices than this value
